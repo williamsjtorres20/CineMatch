@@ -1,0 +1,39 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "Compilar CineMatch Completo",
+            "command": "/usr/bin/g++",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "${fileDirname}/CineMatch.cpp",
+                "${fileDirname}/external/imgui/imgui.cpp",
+                "${fileDirname}/external/imgui/imgui_draw.cpp",
+                "${fileDirname}/external/imgui/imgui_tables.cpp",
+                "${fileDirname}/external/imgui/imgui_widgets.cpp",
+                "${fileDirname}/external/imgui/imgui_impl_glfw.cpp",
+                "${fileDirname}/external/imgui/imgui_impl_opengl3.cpp",
+                "-I${fileDirname}/external/imgui",
+                "-lglfw",
+                "-lGL",
+                "-lcurl",
+                "-lsqlite3",
+                "-o",
+                "${fileDirname}/CineMatch_app"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Tarea para compilar CineMatch con ImGui, Curl y SQLite"
+        }
+    ]
+}
