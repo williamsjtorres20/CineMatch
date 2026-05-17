@@ -17,6 +17,124 @@
 using json = nlohmann::json;
 const std::string API_KEY = "e059ee50571ca68d3761e10bbc575257";
 
+// --- 1. ESTRUCTURA DE DATOS ---
+struct Pelicula {
+    int id;
+    std::string titulo;
+    std::string actorPrincipal; // Nueva dimensión para el motor de curaduría
+    std::vector<int> generos;
+    float rating;
+    float puntajeAfinidad;
+    bool esSerie;
+};
+
+// --- 2. CLASE PERFIL (Maneja los gustos del usuario) ---
+class Perfil {
+public:
+    std::vector<int> generosFavoritos;
+    std::vector<std::string> actoresFavoritos;
+
+    void cargarGustosDesdeDB(sqlite3* db) {
+        generosFavoritos.clear();
+        actoresFavoritos.clear();
+        
+        sqlite3_stmt* stmt;
+        // Seleccionamos géneros y actores de la tabla favoritos
+        const char* sql = "SELECT actor, id_genero FROM favoritos_detalles;"; 
+        // Nota: Asumimos que guardas los géneros asociados a tus favoritos en una tabla relacional
+        
+        // Para este ejemplo, simplificamos la carga de actores:
+        sqlite3_prepare_v2(db, "SELECT DISTINCT actor FROM favoritos WHERE actor IS NOT NULL;", -1, &stmt, 0);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* act = (const char*)sqlite3_column_text(stmt, 0);
+            if (act) actoresFavoritos.push_back(std::string(act));
+        }
+        sqlite3_finalize(stmt);
+    }
+};
+
+// --- 3. MOTOR DE CURADURÍA CON HEURÍSTICA DE REPARTO ---
+class MotorCuraduria {
+public:
+    void ejecutarBusquedaAutomatica(Perfil& perfil, std::vector<Pelicula>& catalogo) {
+        for (auto& peli : catalogo) {
+            float puntos = 0;
+
+            // DIMENSIÓN A: Géneros (Peso base 1.0)
+            for (int idGusto : perfil.generosFavoritos) {
+                for (int idPeli : peli.generos) {
+                    if (idGusto == idPeli) puntos += 1.0f;
+                }
+            }
+
+            // DIMENSIÓN B: Casting (Peso prioritario 2.5)
+            // Si el protagonista de esta peli está en tu lista de actores favoritos
+            for (const std::string& actorFav : perfil.actoresFavoritos) {
+                if (!peli.actorPrincipal.empty() && peli.actorPrincipal == actorFav) {
+                    puntos += 2.5f; 
+                }
+            }
+
+            peli.puntajeAfinidad = puntos;
+        }
+
+        // Ordenamiento por Afinidad > Rating
+        std::sort(catalogo.begin(), catalogo.end(), [](const Pelicula& a, const Pelicula& b) {
+            if (a.puntajeAfinidad != b.puntajeAfinidad)
+                return a.puntajeAfinidad > b.puntajeAfinidad;
+            return a.rating > b.rating;
+        });
+    }
+};
+
+// --- 4. EXTRACCIÓN DE DATOS DE LA API (Parsing JSON) ---
+std::vector<Pelicula> procesarRespuestaAPI(std::string jsonRaw, bool esSerie) {
+    std::vector<Pelicula> lista;
+    auto datos = json::parse(jsonRaw);
+
+    for (auto& item : datos["results"]) {
+        Pelicula p;
+        p.id = item["id"];
+        p.titulo = esSerie ? item["name"] : item["title"];
+        p.rating = item.value("vote_average", 0.0f);
+        p.esSerie = esSerie;
+        p.puntajeAfinidad = 0;
+
+        // Extraer géneros
+        if (item.contains("genre_ids")) {
+            for (auto& g : item["genre_ids"]) p.generos.push_back(g);
+        }
+
+        // EXTRAER ACTOR PRINCIPAL
+        // TMDB en el endpoint 'discover' no siempre manda el cast. 
+        // Si no viene, el programa lo marca como "Pendiente" para una sub-consulta.
+        if (item.contains("character_main")) { // Campo hipotético según tu integración
+            p.actorPrincipal = item["character_main"];
+        } else {
+            p.actorPrincipal = "Desconocido"; 
+        }
+
+        lista.push_back(p);
+    }
+    return lista;
+}
+
+// --- 5. PERSISTENCIA (SQLite) ---
+void guardarEnFavoritos(sqlite3* db, const Pelicula& p) {
+    sqlite3_stmt* stmt;
+    // IMPORTANTE: Tu tabla debe tener la columna 'actor'
+    const char* sql = "INSERT OR REPLACE INTO favoritos (id, titulo, esSerie, actor) VALUES (?, ?, ?, ?);";
+    
+    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_bind_int(stmt, 1, p.id);
+    sqlite3_bind_text(stmt, 2, p.titulo.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 3, p.esSerie ? 1 : 0);
+    sqlite3_bind_text(stmt, 4, p.actorPrincipal.c_str(), -1, SQLITE_STATIC);
+    
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
 enum EstadoApp { LOGIN, SELECCION_INICIAL, DASHBOARD };
 enum VistaDashboard { MEZCLA, SOLO_PELIS, SOLO_SERIES };
 
